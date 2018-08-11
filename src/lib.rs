@@ -52,7 +52,6 @@
 //  - https://github.com/rust-lang/cargo/blob/099ad28104fe319f493dc42e0c694d468c65767d/src/cargo/lib.rs#L154-L178
 //  - https://github.com/BurntSushi/ripgrep/issues/94#issuecomment-261761687
 
-#[cfg(not(windows))]
 pub fn stdin_isatty() -> bool {
     isatty(stream::Stream::Stdin)
 }
@@ -67,7 +66,6 @@ pub fn stderr_isatty() -> bool {
 
 mod stream {
     pub enum Stream {
-        #[cfg(not(windows))]
         Stdin,
         Stdout,
         Stderr,
@@ -103,6 +101,7 @@ mod windows {
 
     pub fn isatty(stream: Stream) -> bool {
         let handle = match stream {
+            Stream::Stdin => winapi::um::winbase::STD_INPUT_HANDLE,
             Stream::Stdout => winapi::um::winbase::STD_OUTPUT_HANDLE,
             Stream::Stderr => winapi::um::winbase::STD_ERROR_HANDLE,
         };
@@ -127,27 +126,29 @@ mod windows {
         use std::os::windows::ffi::OsStringExt;
         use std::slice;
 
-        use self::winapi::um::winbase::GetFileInformationByHandleEx;
+        use self::winapi::shared::minwindef::LPVOID;
+        use self::winapi::shared::minwindef::MAX_PATH;
         use self::winapi::um::fileapi::FILE_NAME_INFO;
         use self::winapi::um::minwinbase::FileNameInfo;
-        use self::winapi::shared::minwindef::MAX_PATH;
-        use self::winapi::shared::minwindef::LPVOID;
+        use self::winapi::um::winbase::GetFileInformationByHandleEx;
 
         unsafe {
             let size = mem::size_of::<FILE_NAME_INFO>();
             let mut name_info_bytes = vec![0u8; size + MAX_PATH];
-            let res = GetFileInformationByHandleEx(handle,
-                                                FileNameInfo,
-                                                &mut *name_info_bytes as *mut _ as LPVOID,
-                                                name_info_bytes.len() as u32);
+            let res = GetFileInformationByHandleEx(
+                handle,
+                FileNameInfo,
+                &mut *name_info_bytes as *mut _ as LPVOID,
+                name_info_bytes.len() as u32,
+            );
             if res == 0 {
                 return true;
             }
-            let name_info: FILE_NAME_INFO = *(name_info_bytes[0..size]
-                .as_ptr() as *const FILE_NAME_INFO);
+            let name_info: FILE_NAME_INFO =
+                *(name_info_bytes[0..size].as_ptr() as *const FILE_NAME_INFO);
             let name_bytes = &name_info_bytes[size..size + name_info.FileNameLength as usize];
-            let name_u16 = slice::from_raw_parts(name_bytes.as_ptr() as *const u16,
-                                                name_bytes.len() / 2);
+            let name_u16 =
+                slice::from_raw_parts(name_bytes.as_ptr() as *const u16, name_bytes.len() / 2);
             let name = OsString::from_wide(name_u16)
                 .as_os_str()
                 .to_string_lossy()
